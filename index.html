@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Start Prev – Cálculo de Honorários</title>
+
+  <!-- pdf.js para leitura do PDF no navegador -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  </script>
+
+  <style>
+    body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+    h1 { margin-bottom: 10px; }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    label { display: block; margin-top: 10px; font-weight: bold; }
+    input[type="file"], input[type="text"] {
+      width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc;
+      border-radius: 4px; font-size: 14px;
+    }
+    .radio-group { margin-top: 5px; font-size: 14px; }
+    button {
+      margin-top: 15px;
+      padding: 10px 20px;
+      border: none; border-radius: 999px;
+      background: #2563eb; color: white; font-size: 15px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+      font-size: 13px;
+    }
+    th { background: #2563eb; color: white; }
+    .total-row td { font-weight: bold; background: #eef5ff; }
+    .saldo-row td { font-weight: bold; background: #fff3d1; }
+
+    .error { color: #b91c1c; margin-top: 10px; font-size: 14px; }
+    .debug { margin-top: 15px; background: #f7f7f7; padding: 10px; border-radius: 4px; white-space: pre-wrap; font-size: 12px; max-height: 200px; overflow: auto; }
+  </style>
+</head>
+<body>
+
+  <h1>Start Prev – Cálculo Automático de Honorários</h1>
+
+  <div class="card">
+    <label>Arquivo PDF do INSS (Histórico de Créditos)</label>
+    <input type="file" id="pdfFile" accept="application/pdf" />
+
+    <label>É a primeira parcela que a cliente está recebendo?</label>
+    <div class="radio-group">
+      <label><input type="radio" name="primeiraParcela" value="sim" checked> Sim</label>
+      <label style="margin-left: 15px;"><input type="radio" name="primeiraParcela" value="nao"> Não</label>
+    </div>
+
+    <div id="valoresAnteriores" style="margin-top: 12px; display: none;">
+      <label>Valor Previsto Anterior (R$)</label>
+      <input type="text" id="valorPrevistoAnterior" placeholder="ex: 1.569,77" />
+
+      <label>Valor Recebido Anterior (R$)</label>
+      <input type="text" id="valorRecebidoAnterior" placeholder="ex: 1.065,39" />
+    </div>
+
+    <button id="btnProcessar">PROCESSAR</button>
+    <div id="erro" class="error"></div>
+  </div>
+
+  <div class="card">
+    <h2>Resultado</h2>
+    <table id="tabelaResultado">
+      <thead>
+        <tr>
+          <th>Parcela</th>
+          <th>Data INSS</th>
+          <th>Valor do INSS</th>
+          <th>Valor da Cliente</th>
+          <th>Valor Previsto</th>
+          <th>Valor Recebido</th>
+          <th>Saldo Start</th>
+          <th>Saldo Cliente</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+      <tfoot></tfoot>
+    </table>
+    <div id="debug" class="debug"></div>
+  </div>
+
+  <script>
+    function formatBR(num) {
+      return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+
+    function parseBR(str) {
+      if (!str) return 0;
+      const clean = str.replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, '');
+      const n = Number(clean);
+      return isNaN(n) ? 0 : n;
+    }
+
+    async function lerPdfComoTexto(file) {
+      const buffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+      let texto = '';
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        texto += content.items.map(i => i.str).join('\n') + '\n';
+      }
+      return texto;
+    }
+
+    function atualizarVisibilidade() {
+      const val = document.querySelector('input[name="primeiraParcela"]:checked').value;
+      const bloco = document.getElementById('valoresAnteriores');
+      bloco.style.display = val === 'nao' ? 'block' : 'none';
+    }
+    document.querySelectorAll('input[name="primeiraParcela"]').forEach(r => {
+      r.addEventListener('change', atualizarVisibilidade);
+    });
+    atualizarVisibilidade();
+
+    document.getElementById('btnProcessar').addEventListener('click', async () => {
+      const erro = document.getElementById('erro');
+      const tbody = document.querySelector('#tabelaResultado tbody');
+      const tfoot = document.querySelector('#tabelaResultado tfoot');
+      const debug = document.getElementById('debug');
+
+      erro.textContent = '';
+      debug.textContent = '';
+      tbody.innerHTML = '';
+      tfoot.innerHTML = '';
+
+      const file = document.getElementById('pdfFile').files[0];
+      if (!file) {
+        erro.textContent = 'Selecione um arquivo PDF.';
+        return;
+      }
+
+      const primeiraParcela = document.querySelector('input[name="primeiraParcela"]:checked').value === 'sim';
+      let vpAnterior = 0, vrAnterior = 0;
+
+      if (!primeiraParcela) {
+        const vpStr = document.getElementById('valorPrevistoAnterior').value.trim();
+        const vrStr = document.getElementById('valorRecebidoAnterior').value.trim();
+        if (!vpStr || !vrStr) {
+          erro.textContent = 'Preencha os valores anteriores antes de processar.';
+          return;
+        }
+        vpAnterior = parseBR(vpStr);
+        vrAnterior = parseBR(vrStr);
+      }
+
+      try {
+        const pdfText = await lerPdfComoTexto(file);
+
+        const resp = await fetch('/api/startprev', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pdfText,
+            valorPrevistoAnterior: vpAnterior,
+            valorRecebidoAnterior: vrAnterior,
+            primeiraParcela
+          })
+        });
+
+        const data = await resp.json();
+
+        if (data.error) {
+          erro.textContent = data.error;
+          return;
+        }
+
+        // Espera { linhas: [...], totais_final: {...} }
+        debug.textContent = JSON.stringify(data, null, 2);
+
+        data.linhas.forEach(l => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>Parcela ${l.parcela}</td>
+            <td>${l.data_inss}</td>
+            <td>${formatBR(l.valor_inss)}</td>
+            <td>${formatBR(l.valor_cliente)}</td>
+            <td>${formatBR(l.valor_previsto)}</td>
+            <td>${formatBR(l.valor_recebido)}</td>
+            <td>${formatBR(l.saldo_start)}</td>
+            <td>${l.saldo_cliente == null ? "" : formatBR(l.saldo_cliente)}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        if (data.totais_final) {
+          const t1 = document.createElement('tr');
+          t1.classList.add('total-row');
+          t1.innerHTML = `
+            <td>Total Cliente</td>
+            <td></td>
+            <td>${formatBR(data.totais_final.total_inss)}</td>
+            <td>${formatBR(data.totais_final.total_cliente)}</td>
+            <td>${formatBR(data.totais_final.total_previsto)}</td>
+            <td>${formatBR(data.totais_final.total_recebido)}</td>
+            <td>${formatBR(data.totais_final.saldo_start_final)}</td>
+            <td></td>
+          `;
+          tfoot.appendChild(t1);
+
+          const t2 = document.createElement('tr');
+          t2.classList.add('saldo-row');
+          t2.innerHTML = `
+            <td>Saldo da Cliente</td>
+            <td></td>
+            <td>${formatBR(data.totais_final.saldo_da_cliente)}</td>
+            <td></td><td></td><td></td><td></td><td></td>
+          `;
+          tfoot.appendChild(t2);
+        }
+
+      } catch (e) {
+        console.error(e);
+        erro.textContent = 'Erro ao processar: ' + e.message;
+      }
+    });
+  </script>
+
+</body>
+</html>
