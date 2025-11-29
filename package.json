@@ -1,0 +1,13 @@
+{
+  "name": "startprev-vercel",
+  "version": "1.0.0",
+  "description": "Backend Start Prev rodando na Vercel com Supabase e OpenAI",
+  "main": "index.js",
+  "scripts": {
+    "start": "node api/startprev.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.0",
+    "openai": "^4.70.0"
+  }
+}
