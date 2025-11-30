@@ -1,178 +1,108 @@
-import OpenAI from "openai";
+// ============================================================================
+// START PREV - API VERCEL (MULTI-AGENTES)
+// ============================================================================
+// - Recebe texto do PDF via POST do front
+// - Envia para o WORKFLOW (6 agentes) do Agent Builder
+// - Aguarda a conclusão via polling
+// - Retorna JSON final para a página (linhas + totais_final)
+// - Salva snapshot no Supabase
+// ============================================================================
+
 import { createClient } from "@supabase/supabase-js";
 
-// -----------------------------------------------------------------------------
-// Configuração OpenAI
-// -----------------------------------------------------------------------------
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+// ---------------------------------------------------------------------------
+// VARIÁVEIS DE AMBIENTE
+// ---------------------------------------------------------------------------
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// ---------------------------------------------------------------------------
+// CONFIGURAÇÃO DO SUPABASE
+// ---------------------------------------------------------------------------
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false }
 });
 
-// -----------------------------------------------------------------------------
-// Configuração Supabase (usa SERVICE ROLE no backend, nunca no frontend)
-// -----------------------------------------------------------------------------
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
+// ---------------------------------------------------------------------------
+// WORKFLOW / AGENT BUILDER (6 AGENTES)
+// ---------------------------------------------------------------------------
+const WORKFLOW_ID = "wf_692b2e9a94e88190807ca365f3ac6241019dd77ac57ba878";
+
+// ============================================================================
+// FUNÇÃO - INICIAR RUN DO WORKFLOW
+// ============================================================================
+async function iniciarWorkflow(inputObj) {
+  const response = await fetch("https://api.openai.com/v1/agent_runs", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`
     },
-  }
-);
-
-// -----------------------------------------------------------------------------
-// Função auxiliar: chama o modelo gpt-5.1 via Responses API
-// -----------------------------------------------------------------------------
-async function chamarIAStartPrev({
-  pdfText,
-  primeiraParcela,
-  valorPrevistoAnterior,
-  valorRecebidoAnterior,
-}) {
-  // Normaliza booleano
-  const primeiraParcelaBool =
-    primeiraParcela === true ||
-    primeiraParcela === "true" ||
-    primeiraParcela === "sim" ||
-    primeiraParcela === "Sim";
-
-  const response = await openai.responses.create({
-    model: "gpt-5.1",
-    reasoning: { effort: "medium" },
-
-    // ⚠️ Aqui é onde entram as REGRAS DO PROMPT MESTRE.
-    // Coloque/resuma aqui todas as suas instruções detalhadas
-    // (regras de MR, 30%, 40%, datas, etc).
-    instructions: `
-Você é um especialista da Start Prev em cálculo de honorários sobre benefício do INSS
-(geralmente salário-maternidade). Sua tarefa é:
-
-1) Ler o texto extraído do PDF de Histórico de Créditos do INSS.
-2) Calcular todas as parcelas, honorários e saldos conforme as regras internas da Start Prev.
-3) Devolver APENAS um JSON válido, seguindo o schema abaixo, SEM nenhum texto adicional.
-
-Schema de saída:
-
-{
-  "linhas": [
-    {
-      "parcela": "Parcela 1",
-      "data_inss": "03/11/2025",
-      "valor_inss": 1405.00,
-      "valor_cliente": 913.25,
-      "valor_previsto": 491.75,
-      "valor_recebido": 491.75,
-      "saldo_start": 1880.05,
-      "saldo_cliente": 0.00
-    }
-  ],
-  "totais_final": {
-    "total_cliente": 3313.79,
-    "total_start": 3678.56,
-    "saldo_cliente_final": 4592.21
-  }
-}
-
-Regras:
-- NUNCA escreva nada fora do JSON.
-- NUNCA inclua comentários.
-- Todos os valores monetários devem ser números, com ponto como separador decimal.
-- "linhas" é a lista de parcelas, na ordem cronológica em que a cliente recebe.
-- "totais_final" resume os totais de cliente e Start Prev ao final de todas as parcelas.
-
-Use também como contexto:
-- primeira_parcela: indica se esta é a primeira parcela recebida (booleano).
-- valor_previsto_anterior e valor_recebido_anterior: somatórios de faturas anteriores, se existirem.
-`,
-
-    // Passa os dados estruturados como input do usuário
-    input: [
-      {
-        role: "user",
-        content: JSON.stringify({
-          pdf_text: pdfText,
-          primeira_parcela: primeiraParcelaBool,
-          valor_previsto_anterior: valorPrevistoAnterior,
-          valor_recebido_anterior: valorRecebidoAnterior,
-        }),
-      },
-    ],
-
-    // Exigir JSON seguindo o schema
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "StartPrevResultado",
-        strict: true,
-        schema: {
-          type: "object",
-          properties: {
-            linhas: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  parcela: { type: "string" },
-                  data_inss: { type: "string" },
-                  valor_inss: { type: "number" },
-                  valor_cliente: { type: "number" },
-                  valor_previsto: { type: "number" },
-                  valor_recebido: { type: "number" },
-                  saldo_start: { type: "number" },
-                  saldo_cliente: { type: "number" },
-                },
-                required: [
-                  "parcela",
-                  "data_inss",
-                  "valor_inss",
-                  "valor_cliente",
-                  "valor_previsto",
-                  "valor_recebido",
-                  "saldo_start",
-                  "saldo_cliente",
-                ],
-                additionalProperties: true,
-              },
-            },
-            totais_final: {
-              type: "object",
-              properties: {
-                total_cliente: { type: "number" },
-                total_start: { type: "number" },
-                saldo_cliente_final: { type: "number" },
-              },
-              additionalProperties: true,
-            },
-          },
-          required: ["linhas"],
-          additionalProperties: true,
-        },
-      },
-    },
+    body: JSON.stringify({
+      agent_id: WORKFLOW_ID,
+      input: inputObj
+    })
   });
 
-  // A Responses API retorna a saída em response.output[0].content[0].text
-  const content = response.output?.[0]?.content?.[0];
-  const jsonText = content?.text;
+  const data = await response.json();
 
-  if (!jsonText) {
-    throw new Error("Não foi possível extrair texto JSON da resposta da IA.");
+  if (!response.ok) {
+    console.error("Erro ao iniciar workflow:", data);
+    throw new Error("Falha ao iniciar workflow");
   }
 
-  const parsed = JSON.parse(jsonText);
-  return parsed;
+  return data.run_id;
 }
 
-// -----------------------------------------------------------------------------
-// Função principal da rota /api/startprev
-// -----------------------------------------------------------------------------
+// ============================================================================
+// FUNÇÃO - POLLING: AGUARDAR RESULTADO DO WORKFLOW
+// ============================================================================
+async function aguardarResultado(run_id) {
+  while (true) {
+    const response = await fetch(
+      `https://api.openai.com/v1/agent_runs/${run_id}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`
+        }
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("Erro no polling:", data);
+      throw new Error("Erro ao consultar execução do workflow");
+    }
+
+    // STATUS DO WORKFLOW:
+    // - waiting / running → continuar
+    // - completed → pegar resultado
+    // - failed → erro
+    if (data.status === "completed") {
+      return data.result;
+    }
+
+    if (data.status === "failed") {
+      console.error("Workflow falhou:", data);
+      throw new Error("Workflow retornou status FAILED");
+    }
+
+    // Aguarda 1 segundo antes do próximo polling
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
+
+// ============================================================================
+// HANDLER DA ROTA /api/startprev
+// ============================================================================
 export default async function handler(req, res) {
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "Método não permitido. Use POST." });
+    return res.status(405).json({
+      error: "Método não permitido. Use POST."
+    });
   }
 
   try {
@@ -180,76 +110,82 @@ export default async function handler(req, res) {
       pdfText,
       primeiraParcela,
       valorPrevistoAnterior,
-      valorRecebidoAnterior,
+      valorRecebidoAnterior
     } = req.body || {};
 
-    if (!pdfText || typeof pdfText !== "string") {
-      return res
-        .status(400)
-        .json({ error: "Campo 'pdfText' é obrigatório e deve ser texto." });
+    if (!pdfText) {
+      return res.status(400).json({
+        error: "pdfText é obrigatório."
+      });
     }
 
-    const valorPrevisto =
-      typeof valorPrevistoAnterior === "number"
-        ? valorPrevistoAnterior
-        : Number(
-            String(valorPrevistoAnterior || "0").replace(".", "").replace(",", ".")
-          ) || 0;
+    // -----------------------------------------------------------------------
+    // 1️⃣ MONTA INPUT PARA OS 6 AGENTES
+    // -----------------------------------------------------------------------
+    const input = {
+      pdf_text: pdfText,
+      primeira_parcela:
+        primeiraParcela === true ||
+        primeiraParcela === "true" ||
+        primeiraParcela === "sim",
+      valor_previsto_anterior: Number(valorPrevistoAnterior || 0),
+      valor_recebido_anterior: Number(valorRecebidoAnterior || 0)
+    };
 
-    const valorRecebido =
-      typeof valorRecebidoAnterior === "number"
-        ? valorRecebidoAnterior
-        : Number(
-            String(valorRecebidoAnterior || "0").replace(".", "").replace(",", ".")
-          ) || 0;
+    console.log("🔵 Enviando ao workflow:", input);
 
-    // 1) Chama a IA pra calcular linhas e totais
-    const resultadoIA = await chamarIAStartPrev({
-      pdfText,
-      primeiraParcela,
-      valorPrevistoAnterior: valorPrevisto,
-      valorRecebidoAnterior: valorRecebido,
-    });
+    // -----------------------------------------------------------------------
+    // 2️⃣ INICIA O WORKFLOW
+    // -----------------------------------------------------------------------
+    const run_id = await iniciarWorkflow(input);
+    console.log("🟡 Workflow iniciado. run_id =", run_id);
 
-    const linhas = resultadoIA.linhas || [];
-    const totais_final = resultadoIA.totais_final || null;
+    // -----------------------------------------------------------------------
+    // 3️⃣ POLLING ATÉ CONCLUSÃO
+    // -----------------------------------------------------------------------
+    const result = await aguardarResultado(run_id);
+    console.log("🟢 Workflow concluído:", result);
 
-    // 2) (Opcional) salva um "snapshot" do cálculo no Supabase
+    // O resultado DEVE conter:
+    // {
+    //   linhas: [...],
+    //   totais_final: {...}
+    // }
+    const linhas = result?.output?.linhas || result?.linhas || [];
+    const totais_final =
+      result?.output?.totais_final || result?.totais_final || null;
+
+    // -----------------------------------------------------------------------
+    // 4️⃣ SALVAR SNAPSHOT NO SUPABASE (OPCIONAL)
+    // -----------------------------------------------------------------------
     try {
       await supabase.from("calculos_start_prev").insert({
-        // cliente_id: null, // se tiver um ID de cliente, passe aqui
         pdf_filename: null,
-        primeira_parcela:
-          primeiraParcela === true ||
-          primeiraParcela === "true" ||
-          primeiraParcela === "sim" ||
-          primeiraParcela === "Sim",
-        valor_previsto_anterior: valorPrevisto,
-        valor_recebido_anterior: valorRecebido,
-        total_inss: null,
-        honorario_total: null,
-        honorario_ja_pago: null,
-        saldo_start_inicial: null,
-        saldo_start_final: totais_final?.total_start ?? null,
-        total_cliente: totais_final?.total_cliente ?? null,
-        saldo_da_cliente: totais_final?.saldo_cliente_final ?? null,
-        resultado_json: resultadoIA,
+        primeira_parcela: input.primeira_parcela,
+        valor_previsto_anterior: input.valor_previsto_anterior,
+        valor_recebido_anterior: input.valor_recebido_anterior,
+        resultado_json: result,
+        total_cliente: totais_final?.total_cliente || null,
+        saldo_start_final: totais_final?.total_start || null,
+        saldo_da_cliente: totais_final?.saldo_cliente_final || null
       });
     } catch (dbErr) {
-      console.error("Erro ao salvar cálculo no Supabase (não fatal):", dbErr);
-      // Não interrompe a resposta para o front.
+      console.error("Erro ao salvar no Supabase (não fatal):", dbErr);
     }
 
-    // 3) Responde para o frontend exatamente o que a página espera
+    // -----------------------------------------------------------------------
+    // 5️⃣ RESPONDER PARA O FRONT-END
+    // -----------------------------------------------------------------------
     return res.status(200).json({
       ok: true,
       linhas,
-      totais_final,
+      totais_final
     });
   } catch (err) {
-    console.error("Erro geral em /api/startprev:", err);
-    return res
-      .status(500)
-      .json({ ok: false, error: "Erro interno no processamento." });
+    console.error("❌ Erro geral no /api/startprev:", err);
+    return res.status(500).json({
+      ok: false,
+      error: "Erro interno no processamento."
+    });
   }
 }
