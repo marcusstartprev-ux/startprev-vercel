@@ -25,6 +25,7 @@
     const { useState, useEffect } = React;
 
     function App() {
+      // ESTADOS
       const [step, setStep] = useState('upload'); 
       const [loading, setLoading] = useState(false);
       const [data, setData] = useState(null); 
@@ -32,15 +33,16 @@
       const [primeiraParcela, setPrimeiraParcela] = useState("sim");
       const [pagoAnterior, setPagoAnterior] = useState("");
 
-      // Atualiza ícones sempre que a tela muda
+      // Ícones (Com delay para evitar erro de renderização)
       useEffect(() => { 
-        // Pequeno delay para garantir que o React terminou de renderizar
-        setTimeout(() => lucide.createIcons(), 50);
+        const timer = setTimeout(() => lucide.createIcons(), 50);
+        return () => clearTimeout(timer);
       }, [data, step]);
 
+      // --- AÇÃO 1: PREVIEW ---
       const handlePreview = async () => {
         if(!pdfFile) return alert("Selecione o PDF.");
-        if(pdfFile.type !== 'application/pdf') return alert("Arquivo inválido. Use um PDF.");
+        if(pdfFile.type !== 'application/pdf') return alert("Arquivo inválido. Selecione o PDF original.");
         
         setLoading(true);
         setData(null);
@@ -57,6 +59,7 @@
 
           const res = await fetch('/api/startprev', {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               action: 'preview',
               pdfText: text,
@@ -69,7 +72,7 @@
           if(json.error) throw new Error(json.error);
           
           setData(json);
-          setStep('preview');
+          setStep('preview'); 
         } catch (e) {
           alert("Erro: " + e.message);
         } finally {
@@ -77,11 +80,13 @@
         }
       };
 
+      // --- AÇÃO 2: SALVAR ---
       const handleSave = async () => {
         setLoading(true);
         try {
           const res = await fetch('/api/startprev', {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               action: 'save',
               dadosParaSalvar: data,
@@ -91,7 +96,8 @@
           });
           const json = await res.json();
           if(json.error) throw new Error(json.error);
-          setStep('success');
+          
+          setStep('success'); // Vai para a tela de sucesso
         } catch (e) {
           alert("Erro ao salvar: " + e.message);
         } finally {
@@ -99,23 +105,23 @@
         }
       };
 
-      const fmt = (v) => Number(v).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+      const fmt = (v) => Number(v || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
       const pct = (v) => (v*100).toFixed(0) + '%';
 
-      // --- TELA 1: UPLOAD ---
+      // ---------------- TELA 1: UPLOAD ----------------
       if (step === 'upload') {
         return (
-          // Adicionei key="upload" aqui para forçar recriação do DOM
+          // AQUI ESTÁ A CORREÇÃO: key="upload"
           <div key="upload" className="min-h-screen flex items-center justify-center p-4">
             <div className="bg-white max-w-lg w-full p-8 rounded-2xl shadow-xl">
               <div className="text-center mb-8">
                 <h1 className="text-3xl font-bold text-brand-700">Start Prev</h1>
-                <p className="text-gray-500">Auditoria de Honorários</p>
+                <p className="text-gray-500">Auditoria Inteligente</p>
               </div>
 
               <div className="space-y-6">
                 <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-gray-50 hover:bg-blue-50 transition-colors cursor-pointer relative">
-                  <input type="file" onChange={e => setPdfFile(e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/>
+                  <input type="file" accept="application/pdf" onChange={e => setPdfFile(e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/>
                   <div className="mx-auto bg-brand-100 w-12 h-12 rounded-full flex items-center justify-center mb-3">
                     <i data-lucide="upload-cloud" className="text-brand-600"></i>
                   </div>
@@ -124,7 +130,7 @@
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-bold text-gray-500 uppercase">Tipo</label>
+                    <label className="text-xs font-bold text-gray-500 uppercase">Situação</label>
                     <select className="w-full border p-2 rounded mt-1 bg-white" value={primeiraParcela} onChange={e => setPrimeiraParcela(e.target.value)}>
                       <option value="sim">1ª Cobrança</option>
                       <option value="nao">Recorrente</option>
@@ -138,8 +144,8 @@
                   )}
                 </div>
 
-                <button onClick={handlePreview} disabled={loading} className="w-full bg-brand-600 text-white py-3 rounded-xl font-bold hover:bg-brand-700 transition shadow-lg shadow-blue-200 disabled:opacity-50">
-                  {loading ? 'PROCESSANDO...' : 'GERAR PRÉVIA'}
+                <button onClick={handlePreview} disabled={loading} className="w-full bg-brand-600 text-white py-3 rounded-xl font-bold hover:bg-brand-700 transition shadow-lg shadow-blue-200 disabled:opacity-50 flex justify-center items-center gap-2">
+                  {loading ? 'PROCESSANDO...' : <><i data-lucide="search"></i> GERAR PRÉVIA</>}
                 </button>
               </div>
             </div>
@@ -147,25 +153,21 @@
         );
       }
 
-      // --- TELA 2: PRÉVIA (CARD + TABELA) ---
+      // ---------------- TELA 2: PRÉVIA (CARD + TABELA) ----------------
       if (step === 'preview' && data) {
         return (
-          // Adicionei key="preview" aqui para isolar o DOM
-          <div key="preview" className="max-w-6xl mx-auto p-6 space-y-8">
+          // AQUI ESTÁ A CORREÇÃO: key="preview"
+          <div key="preview" className="max-w-6xl mx-auto p-6 space-y-8 animate-fade-in">
             
-            {/* TOPO: CARD ELEGANTE DO CLIENTE */}
+            {/* CARD AZUL DO CLIENTE */}
             <div className="bg-gradient-to-r from-brand-900 to-brand-700 rounded-2xl shadow-xl p-6 text-white relative overflow-hidden">
-               <div className="absolute top-0 right-0 opacity-10 transform translate-x-10 -translate-y-10">
-                 <i data-lucide="file-text" style={{width: 150, height: 150}}></i>
-               </div>
-               
                <div className="flex flex-col md:flex-row justify-between items-start md:items-center relative z-10 gap-6">
                  <div>
                     <h2 className="text-sm font-bold text-brand-200 uppercase tracking-wider mb-1">Cliente</h2>
-                    <div className="text-3xl font-bold">{data.dados_cliente.nome}</div>
+                    <div className="text-3xl font-bold">{data.dados_cliente?.nome || 'Cliente não identificado'}</div>
                     <div className="flex items-center gap-4 mt-2 text-brand-100 text-sm">
-                       <span className="flex items-center gap-1"><i data-lucide="user" className="w-4 h-4"></i> {data.dados_cliente.cpf}</span>
-                       <span className="flex items-center gap-1"><i data-lucide="hash" className="w-4 h-4"></i> NB: {data.dados_cliente.nb}</span>
+                       <span className="flex items-center gap-1"><i data-lucide="user" className="w-4 h-4"></i> {data.dados_cliente?.cpf}</span>
+                       <span className="flex items-center gap-1"><i data-lucide="hash" className="w-4 h-4"></i> NB: {data.dados_cliente?.nb}</span>
                     </div>
                  </div>
                  
@@ -174,12 +176,12 @@
                     <div className="space-y-1">
                        <div className="flex items-center justify-between">
                           <span>Alíquota:</span>
-                          <span className="font-bold bg-white text-brand-800 px-1.5 rounded text-xs">{data.dados_cliente.aliquota_inss_faixa}</span>
+                          <span className="font-bold bg-white text-brand-800 px-1.5 rounded text-xs">{data.dados_cliente?.aliquota_inss_faixa}</span>
                        </div>
                        <div className="flex items-center justify-between">
                           <span>13º Salário:</span>
-                          <span className={`font-bold px-1.5 rounded text-xs ${data.dados_cliente.tem_decimo_terceiro ? 'bg-green-400 text-green-900' : 'bg-gray-400'}`}>
-                             {data.dados_cliente.tem_decimo_terceiro ? 'SIM' : 'NÃO'}
+                          <span className={`font-bold px-1.5 rounded text-xs ${data.dados_cliente?.tem_decimo_terceiro ? 'bg-green-400 text-green-900' : 'bg-gray-400'}`}>
+                             {data.dados_cliente?.tem_decimo_terceiro ? 'SIM' : 'NÃO'}
                           </span>
                        </div>
                     </div>
@@ -187,21 +189,21 @@
                </div>
             </div>
 
-            {/* AÇÕES */}
+            {/* BOTÕES DE AÇÃO */}
             <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border">
-               <button onClick={() => setStep('upload')} className="text-gray-500 hover:text-gray-700 font-bold px-4">
-                 ← Voltar / Cancelar
+               <button onClick={() => setStep('upload')} className="text-gray-500 hover:text-gray-700 font-bold px-4 flex items-center gap-2">
+                 <i data-lucide="arrow-left"></i> Voltar
                </button>
-               <div className="text-right">
+               <div className="text-right hidden md:block">
                   <div className="text-xs text-gray-400 uppercase font-bold">Saldo a Receber</div>
-                  <div className="text-2xl font-bold text-brand-600">{fmt(data.totais_final.total_honorario_saldo)}</div>
+                  <div className="text-2xl font-bold text-brand-600">{fmt(data.totais_final?.total_honorario_saldo)}</div>
                </div>
-               <button onClick={handleSave} disabled={loading} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-green-700 shadow-lg shadow-green-200 flex items-center gap-2">
+               <button onClick={handleSave} disabled={loading} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-green-700 shadow-lg shadow-green-200 flex items-center gap-2 transition-transform active:scale-95">
                  {loading ? 'GRAVANDO...' : <><i data-lucide="save"></i> CONFIRMAR E SALVAR</>}
                </button>
             </div>
 
-            {/* TABELA DE CÁLCULO */}
+            {/* TABELA DETALHADA */}
             <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
                <table className="w-full text-sm text-left">
                   <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-xs">
@@ -217,14 +219,14 @@
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                     {data.linhas.map((l, i) => (
+                     {data.linhas?.map((l, i) => (
                         <tr key={i} className="hover:bg-gray-50">
                            <td className="p-4 font-medium">#{l.numero_parcela}</td>
                            <td className="p-4">{l.competencia}</td>
                            <td className="p-4">{l.data_inss}</td>
                            <td className="p-4">
                               {l.dias_calculados}
-                              {l.erro_inss_pagou_menos && <span className="ml-2 text-xs bg-red-100 text-red-600 px-1 rounded font-bold">ERRO</span>}
+                              {l.erro_inss_pagou_menos && <span className="ml-2 text-xs bg-red-100 text-red-600 px-1 rounded font-bold" title={l.msg_alerta_inss}>⚠️ ERRO</span>}
                            </td>
                            <td className="p-4 font-bold">{fmt(l.valor_cliente_liquido)}</td>
                            <td className="p-4 text-center">
@@ -238,41 +240,45 @@
                   <tfoot className="bg-gray-50 font-bold text-gray-700 border-t">
                      <tr>
                         <td colSpan="4" className="p-4 text-right">TOTAIS FINAIS:</td>
-                        <td className="p-4">{fmt(data.totais_final.total_liquido_cliente)}</td>
+                        <td className="p-4">{fmt(data.totais_final?.total_liquido_cliente)}</td>
                         <td className="p-4"></td>
-                        <td className="p-4 bg-blue-50 text-blue-900">{fmt(data.totais_final.total_honorario_total)}</td>
-                        <td className="p-4 text-right text-red-600">{fmt(data.totais_final.total_honorario_saldo)}</td>
+                        <td className="p-4 bg-blue-50 text-blue-900">{fmt(data.totais_final?.total_honorario_total)}</td>
+                        <td className="p-4 text-right text-red-600">{fmt(data.totais_final?.total_honorario_saldo)}</td>
                      </tr>
                   </tfoot>
                </table>
             </div>
             
             {/* TEXTO DA FATURA */}
-            <div className="bg-slate-800 p-6 rounded-xl text-slate-300 font-mono text-sm whitespace-pre-wrap">
+            <div className="bg-slate-800 rounded-xl p-6 text-slate-300 font-mono text-sm whitespace-pre-wrap shadow-inner border border-slate-700 relative">
+               <button onClick={() => navigator.clipboard.writeText(data.fatura_texto_completo)} className="absolute top-4 right-4 bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded text-xs flex items-center gap-1">
+                  <i data-lucide="copy" className="w-3 h-3"></i> Copiar Texto
+               </button>
                {data.fatura_texto_completo}
             </div>
           </div>
         );
       }
 
-      // --- TELA 3: SUCESSO ---
+      // ---------------- TELA 3: SUCESSO ----------------
       if (step === 'success') {
          return (
-            // Adicionei key="success" aqui
+            // AQUI ESTÁ A CORREÇÃO: key="success"
             <div key="success" className="min-h-screen flex items-center justify-center bg-gray-50">
-               <div className="bg-white p-12 rounded-2xl shadow-xl text-center max-w-md">
+               <div className="bg-white p-12 rounded-2xl shadow-xl text-center max-w-md animate-scale-up">
                   <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
                      <i data-lucide="check" className="w-10 h-10 text-green-600"></i>
                   </div>
-                  <h2 className="text-2xl font-bold text-gray-800 mb-2">Salvo com Sucesso!</h2>
-                  <p className="text-gray-500 mb-8">A auditoria e a fatura foram registradas no banco de dados.</p>
-                  <button onClick={() => { setData(null); setStep('upload'); }} className="bg-brand-600 text-white px-8 py-3 rounded-xl font-bold w-full hover:bg-brand-700">
+                  <h2 className="text-2xl font-bold text-gray-800 mb-2">Sucesso!</h2>
+                  <p className="text-gray-500 mb-8">Dados salvos com segurança.</p>
+                  <button onClick={() => { setData(null); setStep('upload'); }} className="bg-brand-600 text-white px-8 py-3 rounded-xl font-bold w-full hover:bg-brand-700 transition">
                      Nova Auditoria
                   </button>
                </div>
             </div>
          );
       }
+
       return null;
     }
 
