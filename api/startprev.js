@@ -1,17 +1,13 @@
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
-// ---------------------------------------------------------------------
 // CONFIGURAÇÕES
-// ---------------------------------------------------------------------
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 });
 
-// ---------------------------------------------------------------------
 // HELPERS
-// ---------------------------------------------------------------------
 function brDateToIso(br) {
   if (!br) return null;
   const parts = br.split("/");
@@ -40,71 +36,54 @@ function readBody(req) {
 }
 
 // ---------------------------------------------------------------------
-// O NOVO CÉREBRO (AS 11 REGRAS DE OURO)
+// PROMPT COM AS NOVAS REGRAS DE ESCALONAMENTO E TETO
 // ---------------------------------------------------------------------
 const SYSTEM_PROMPT = `
-VOCÊ É O MOTOR DE INTELIGÊNCIA CONTÁBIL DA START PREV.
-SUA MISSÃO É ANALISAR O EXTRATO DO INSS E GERAR UMA FATURA DE HONORÁRIOS SEGUINDO RIGOROSAMENTE AS REGRAS ABAIXO.
+VOCÊ É O MOTOR DE DECISÃO FINANCEIRA DA START PREV.
 
 ======================================================================
-REGRAS DE EXTRAÇÃO E CÁLCULO
+REGRAS DE CÁLCULO E AUDITORIA
 ======================================================================
 
-1) DADOS DO EXTRATO
-- Extraia Nome, CPF, NB, DIB, DCB, DIP e MR (Média de Remunerações).
-- Identifique cada parcela (Competência, Rubricas 101/104/206, Valor Líquido, Status, Data).
+1) CONCEITOS BÁSICOS
+- Base de Cálculo: Rubrica 101 (MR).
+- Honorário Total Contratual: 30% sobre o TOTAL LÍQUIDO recebido pelo cliente (soma de todas as parcelas).
+- Saldo a Receber: Honorário Total - Honorários já pagos anteriormente.
 
-2) MR E TABELA 2025
-- Base de cálculo = Rubrica 101 (MR).
-- Tabela 2025:
-  • Até 1.518,00: 7,5%
-  • 1.518,01 a 2.793,88: 9%
-  • 2.793,89 a 4.190,83: 12%
-  • 4.190,84 a 8.157,41: 14%
-- Identifique a faixa do MR da cliente para fins de registro no texto.
+2) AGRUPAMENTO (LIBERAÇÕES)
+- O INSS paga por DATA. Agrupe parcelas com a MESMA data em uma única LIBERAÇÃO.
+- Ex: Mensal + 13º na mesma data = UMA liberação com valor somado.
 
-3) AGRUPAMENTO (LIBERAÇÕES)
-- O INSS paga por DATA. Agrupe parcelas com a MESMA data prevista em uma única LIBERAÇÃO.
-- Mensal + 13º na mesma data = UMA liberação (some os líquidos corretamente sem duplicar o valor do banco).
+3) ESTRATÉGIA DE COBRANÇA (ESCALONAMENTO POR VALOR)
+Para cada liberação FUTURA (pendente), aplique a seguinte lógica SEQUENCIAL:
 
-4) CÁLCULO FINANCEIRO GERAL
-- TOTAL LÍQUIDO INSS = Soma de todos os líquidos (pagos e futuros) entre DIB e DCB.
-- HONORÁRIO TOTAL CONTRATUAL = 30% do Total Líquido INSS.
-- SALDO DE HONORÁRIOS = Honorário Total - Honorário Já Pago (informado pelo usuário).
+   PASSO A: Definir a Alíquota Base
+   - Se o valor líquido da liberação for >= R$ 1.600,00: Base = 40%.
+   - Se o valor líquido da liberação for < R$ 1.600,00: Base = 35%.
 
-5) CALENDÁRIO E PROJEÇÃO
-- Se não houver data no PDF, projete usando o final do NB e o Calendário INSS 2025 (Competência X paga no mês X+1).
+   PASSO B: Calcular a Retenção Potencial
+   - Retenção = Valor Liberação * Base.
 
-6) ESTRATÉGIA DE COBRANÇA (TESTE DE À VISTA - REGRA MÁXIMA)
-- Trabalhe apenas com as liberações FUTURAS (pendentes).
-- Ordene as liberações da maior para a menor.
-- TESTE À VISTA PARA CADA LIBERAÇÃO:
-  • SobraCliente = Valor Liberação - Saldo Honorários
-  • %Cliente = (SobraCliente / Valor Liberação) * 100
-  • SE %Cliente >= 50%:
-      -> CONCLUSÃO: É possível cobrança À VISTA nesta liberação.
-      -> AÇÃO: Cobre 100% do saldo de honorários nessa data. Zere a cobrança nas demais datas futuras.
-  • SE %Cliente < 50%:
-      -> CONCLUSÃO: Não cabe À Vista.
-      -> AÇÃO: Passe para a próxima regra (Cobrança Escalonada).
+   PASSO C: Aplicar a TRAVA DO TETO (CRUCIAL)
+   - Compare a 'Retenção' com o 'Saldo a Receber' restante.
+   - SE Retenção > Saldo a Receber:
+     -> A cobrança deve ser EXATAMENTE igual ao Saldo a Receber. (A alíquota efetiva será menor que a base).
+     -> O Saldo a Receber para as próximas parcelas vira ZERO.
+   - SE Retenção <= Saldo a Receber:
+     -> Mantenha a Retenção calculada.
+     -> Subtraia esse valor do Saldo a Receber para a próxima iteração.
 
-7) COBRANÇA ESCALONADA (Se À Vista falhar)
-- 1ª liberação futura: Tente cobrar 40% (mas garanta que cliente fique com min 60%).
-- 2ª liberação futura: Tente cobrar 35%.
-- 3ª liberação futura: Tente cobrar 30%.
-- Demais: 30%.
-- Última liberação: Cobre TODO o restante do saldo de honorários, mesmo que ultrapasse 40%.
+4) AUDITORIA DE VALOR (ALERTA VERMELHO)
+- Para cada parcela, faça a "Prova Real":
+  • Valor Esperado = (MR / 30) * Dias do Período (DIP até fim do mês ou DCB).
+  • Se o Valor Líquido do PDF for significativamente MENOR que o Valor Esperado (diferença > R$ 10,00), marque a flag 'erro_inss_pagou_menos' como TRUE.
+  • Exceção: Desconsidere 13º salário nessa prova real de dias.
 
-8) TRANSPARÊNCIA
-- Gere um texto claro explicando: Data estimada, Valor liberado, Honorário cobrado, Valor líquido da cliente.
-
-9) OUTPUT ESPERADO (JSON)
-- Gere um JSON contendo os dados estruturados para tabela E o texto completo da fatura conforme as regras.
+5) OUTPUT JSON
+Gere um JSON estrito para alimentar o frontend.
 `;
 
-// ---------------------------------------------------------------------
-// HANDLER PRINCIPAL
-// ---------------------------------------------------------------------
+// HANDLER
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
 
@@ -118,7 +97,7 @@ export default async function handler(req, res) {
     const vpAnterior = Number(valorPrevistoAnterior) || 0;
     const vrAnterior = Number(valorRecebidoAnterior) || 0;
 
-    console.log("🔵 Acionando Motor de Decisão Start Prev (GPT-4o) com 11 Regras...");
+    console.log("🔵 Acionando Motor Start Prev (GPT-4o) - Regra Escalonada + Teto...");
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-2024-08-06",
@@ -141,13 +120,9 @@ export default async function handler(req, res) {
           schema: {
             type: "object",
             properties: {
-              fatura_texto_completo: {
-                type: "string",
-                description: "O texto da FATURA DE HONORÁRIOS completo, pronto para copiar, explicando MR, Tabela 2025, Teste à Vista e Distribuição."
-              },
+              fatura_texto_completo: { type: "string" },
               linhas: {
                 type: "array",
-                description: "Dados para a tabela visual do sistema",
                 items: {
                   type: "object",
                   properties: {
@@ -157,11 +132,20 @@ export default async function handler(req, res) {
                     status_inss: { type: "string" },
                     valor_inss_bruto: { type: "number" },
                     valor_cliente_liquido: { type: "number" },
-                    valor_honorario_calculado: { type: "number", description: "O valor exato que será cobrado nesta parcela segundo a estratégia (À vista ou Escalonada)" },
+                    
+                    // NOVOS CAMPOS PARA AUDITORIA
+                    dias_calculados: { type: "number", description: "Quantos dias a IA calculou para o periodo" },
+                    erro_inss_pagou_menos: { type: "boolean", description: "True se o valor recebido for menor que o devido proporcional" },
+                    msg_alerta_inss: { type: "string", description: "Explicação curta se houver erro (ex: 'Pagou 20 dias mas devia 30')" },
+                    
+                    // CAMPOS DA ESTRATÉGIA
+                    aliquota_aplicada: { type: "number", description: "Percentual usado (ex: 0.4 ou 0.35 ou menor)" },
+                    valor_honorario_calculado: { type: "number" },
+                    
                     saldo_start: { type: "number" },
                     saldo_cliente: { type: "number", nullable: true }
                   },
-                  required: ["numero_parcela", "competencia", "data_inss", "status_inss", "valor_inss_bruto", "valor_cliente_liquido", "valor_honorario_calculado", "saldo_start", "saldo_cliente"],
+                  required: ["numero_parcela", "competencia", "data_inss", "status_inss", "valor_inss_bruto", "valor_cliente_liquido", "dias_calculados", "erro_inss_pagou_menos", "aliquota_aplicada", "valor_honorario_calculado", "saldo_start", "saldo_cliente"],
                   additionalProperties: false
                 }
               },
@@ -208,9 +192,9 @@ export default async function handler(req, res) {
       .select()
       .single();
       
-    if (calcError) console.error("Erro ao salvar BD:", calcError);
+    if (calcError) console.error("Erro BD:", calcError);
 
-    // Salvar itens da distribuição
+    // Salvar distribuição
     if (!calcError && output.linhas.length > 0) {
        const distRows = output.linhas.map((l, index) => ({
           calculo_id: calcInsert.id,
