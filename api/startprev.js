@@ -6,6 +6,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 });
 
+// --- HELPERS ---
 function brDateToIso(br) {
   if (!br) return null;
   const parts = br.split("/");
@@ -33,23 +34,26 @@ function readBody(req) {
   });
 }
 
-// Prompt Atualizado para extrair dados do Card
+// --- PROMPT (CÉREBRO) ---
 const SYSTEM_PROMPT = `
 VOCÊ É O MOTOR DE DECISÃO FINANCEIRA DA START PREV.
 
-1) DADOS DO CLIENTE (PARA O CARD):
-- Extraia: Nome, CPF, NB.
-- Identifique a Alíquota de Desconto INSS (7.5%, 9%, etc) baseada na MR.
-- Identifique se o benefício prevê 13º salário.
+1) DADOS DO CLIENTE (PARA O CARD DE APRESENTAÇÃO):
+   - Extraia com precisão: Nome Completo, CPF, NB (Número do Benefício).
+   - Identifique a Alíquota de Desconto INSS (Ex: "7.5% - 1ª Faixa", "9% - 2ª Faixa") baseada na MR.
+   - Identifique se haverá 13º Salário (Rubrica 104 presente?). Responda boolean.
 
-2) REGRAS DE CÁLCULO (IGUAL AO EXCEL):
-- Agrupe pagamentos por DATA (Liberações).
-- Calcule dias proporcionais para cada competência (dias_calculados).
-- ESTRATÉGIA: Aplique 40% (0.4) para liberações >= 1600 e 35% (0.35) para menores, respeitando o Teto.
-- AUDITORIA: Marque 'erro_inss_pagou_menos' se o valor não bater com os dias.
+2) TABELA DE CÁLCULO (IGUAL AO EXCEL):
+   - Agrupe pagamentos por DATA (Liberações).
+   - Calcule "dias_calculados" proporcionais.
+   - ESTRATÉGIA: 
+     - Liberação >= 1600: Tente 40% (0.4).
+     - Liberação < 1600: Tente 35% (0.35).
+     - TRAVA DE TETO: Se aplicar a % ultrapassar o Saldo Devedor total, reduza a % para cobrar apenas o restante.
+   - AUDITORIA: Marque 'erro_inss_pagou_menos' se o valor líquido não bater com os dias proporcionais.
 
 3) OUTPUT JSON:
-Gere JSON estrito com 'dados_cliente', 'linhas' e 'totais_final'.
+   Gere JSON estrito contendo 'dados_cliente', 'linhas', 'totais_final' e 'fatura_texto_completo'.
 `;
 
 export default async function handler(req, res) {
@@ -58,13 +62,13 @@ export default async function handler(req, res) {
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
-    const action = body.action || 'preview'; // Padrão é preview
+    const action = body.action || 'preview'; 
 
-    // --- MODO PREVIEW (SÓ IA) ---
+    // MODO PREVIEW (CONSULTA IA)
     if (action === 'preview') {
       const { pdfText, valorPrevistoAnterior = 0, valorRecebidoAnterior = 0, primeiraParcela = true } = body;
       
-      console.log("🔵 Modo Preview: Analisando PDF...");
+      console.log("🔵 Modo Preview: Gerando Card e Tabela...");
       
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-2024-08-06",
@@ -80,19 +84,20 @@ export default async function handler(req, res) {
             schema: {
               type: "object",
               properties: {
-                fatura_texto_completo: { type: "string" },
+                // ESTE É O BLOCO QUE FALTAVA PARA O CARD
                 dados_cliente: {
                     type: "object",
                     properties: {
                         nome: { type: "string" },
                         cpf: { type: "string" },
                         nb: { type: "string" },
-                        aliquota_inss_faixa: { type: "string", description: "Ex: 7.5%" },
+                        aliquota_inss_faixa: { type: "string" },
                         tem_decimo_terceiro: { type: "boolean" }
                     },
                     required: ["nome", "cpf", "nb", "aliquota_inss_faixa", "tem_decimo_terceiro"],
                     additionalProperties: false
                 },
+                fatura_texto_completo: { type: "string" },
                 linhas: {
                   type: "array",
                   items: {
@@ -104,7 +109,7 @@ export default async function handler(req, res) {
                       status_inss: { type: "string" },
                       valor_cliente_liquido: { type: "number" },
                       dias_calculados: { type: "number" },
-                      aliquota_aplicada: { type: "number", description: "Frente de Calculo (0.4, 0.35...)" },
+                      aliquota_aplicada: { type: "number" },
                       valor_honorario_calculado: { type: "number" },
                       saldo_start: { type: "number" },
                       erro_inss_pagou_menos: { type: "boolean" },
@@ -127,7 +132,7 @@ export default async function handler(req, res) {
                   additionalProperties: false
                 }
               },
-              required: ["fatura_texto_completo", "dados_cliente", "linhas", "totais_final"],
+              required: ["dados_cliente", "fatura_texto_completo", "linhas", "totais_final"],
               additionalProperties: false
             }
           }
@@ -137,28 +142,28 @@ export default async function handler(req, res) {
       return res.status(200).json(JSON.parse(completion.choices[0].message.content));
     }
 
-    // --- MODO SAVE (GRAVA NO SUPABASE) ---
+    // MODO SAVE (GRAVA NO BANCO)
     if (action === 'save') {
-      const { dados, primeiraParcela, valoresAnteriores } = body;
+      const { dadosParaSalvar, primeiraParcela, valoresAnteriores } = body;
       console.log("💾 Modo Save: Gravando...");
 
       const { data: insert, error } = await supabase.from("calculos_start_prev").insert({
         primeira_parcela: !!primeiraParcela,
         valor_previsto_anterior: valoresAnteriores?.previsto || 0,
         valor_recebido_anterior: valoresAnteriores?.recebido || 0,
-        total_inss: 0, // Campo legado ou calcular se precisar
-        total_cliente: toNumber(dados.totais_final.total_liquido_cliente),
-        honorario_total: toNumber(dados.totais_final.total_honorario_total),
-        honorario_ja_pago: toNumber(dados.totais_final.total_honorario_pago),
-        saldo_start_final: toNumber(dados.totais_final.total_honorario_saldo),
-        saldo_da_cliente: toNumber(dados.totais_final.saldo_da_cliente),
-        resultado_json: dados
+        total_inss: 0,
+        total_cliente: toNumber(dadosParaSalvar.totais_final.total_liquido_cliente),
+        honorario_total: toNumber(dadosParaSalvar.totais_final.total_honorario_total),
+        honorario_ja_pago: toNumber(dadosParaSalvar.totais_final.total_honorario_pago),
+        saldo_start_final: toNumber(dadosParaSalvar.totais_final.total_honorario_saldo),
+        saldo_da_cliente: toNumber(dadosParaSalvar.totais_final.saldo_da_cliente),
+        resultado_json: dadosParaSalvar
       }).select().single();
 
       if (error) throw error;
 
-      if (dados.linhas.length > 0) {
-        const items = dados.linhas.map((l, i) => ({
+      if (dadosParaSalvar.linhas.length > 0) {
+        const items = dadosParaSalvar.linhas.map((l, i) => ({
            calculo_id: insert.id,
            ordem_parcela: i + 1,
            competencia: l.competencia,
