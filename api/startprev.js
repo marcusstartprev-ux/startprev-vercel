@@ -6,7 +6,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 });
 
-// Helpers
+// --- HELPERS ---
 function brDateToIso(br) {
   if (!br) return null;
   const parts = br.split("/");
@@ -34,23 +34,23 @@ function readBody(req) {
   });
 }
 
-// PROMPT DO SISTEMA
+// --- PROMPT (CÉREBRO) ---
 const SYSTEM_PROMPT = `
 VOCÊ É O MOTOR DE DECISÃO FINANCEIRA DA START PREV.
 
-1) DADOS DO CLIENTE (Obrigatório para o Card):
+1) DADOS DO CLIENTE (PARA O CARD DE APRESENTAÇÃO):
    - Extraia: Nome Completo, CPF, NB.
-   - Identifique a Alíquota INSS (Ex: "7.5% - 1ª Faixa") baseada na MR.
-   - Identifique se tem 13º Salário (Rubrica 104).
+   - Identifique a Alíquota de Desconto INSS.
+   - Identifique se haverá 13º Salário.
 
-2) REGRAS DE CÁLCULO:
+2) TABELA DE CÁLCULO:
    - Agrupe pagamentos por DATA.
-   - Calcule dias proporcionais.
+   - Calcule "dias_calculados".
    - ESTRATÉGIA: >= 1600 (40%), < 1600 (35%). Respeite o Teto.
-   - AUDITORIA: Marque erro se valor não bater com dias.
+   - AUDITORIA: Marque 'erro_inss_pagou_menos' se o valor não bater com os dias.
 
 3) OUTPUT JSON:
-   Gere JSON estrito com 'dados_cliente', 'linhas', 'totais_final' e 'fatura_texto_completo'.
+   Gere JSON estrito preenchendo TODOS os campos obrigatórios. Se um campo de texto estiver vazio, use uma string vazia "".
 `;
 
 export default async function handler(req, res) {
@@ -59,7 +59,7 @@ export default async function handler(req, res) {
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
-    const action = body.action || 'preview';
+    const action = body.action || 'preview'; 
 
     // MODO PREVIEW
     if (action === 'preview') {
@@ -81,7 +81,6 @@ export default async function handler(req, res) {
             schema: {
               type: "object",
               properties: {
-                // ESTE BLOCO É CRUCIAL PARA O CARD APARECER
                 dados_cliente: {
                     type: "object",
                     properties: {
@@ -112,7 +111,8 @@ export default async function handler(req, res) {
                       erro_inss_pagou_menos: { type: "boolean" },
                       msg_alerta_inss: { type: "string" }
                     },
-                    required: ["numero_parcela", "competencia", "data_inss", "status_inss", "valor_cliente_liquido", "dias_calculados", "aliquota_aplicada", "valor_honorario_calculado", "saldo_start", "erro_inss_pagou_menos"],
+                    // A CORREÇÃO ESTÁ AQUI EMBAIXO: ADICIONEI "msg_alerta_inss" NA LISTA REQUIRED
+                    required: ["numero_parcela", "competencia", "data_inss", "status_inss", "valor_cliente_liquido", "dias_calculados", "aliquota_aplicada", "valor_honorario_calculado", "saldo_start", "erro_inss_pagou_menos", "msg_alerta_inss"],
                     additionalProperties: false
                   }
                 },
@@ -181,7 +181,7 @@ export default async function handler(req, res) {
     }
 
   } catch (err) {
-    console.error(err);
+    console.error("Erro detalhado:", err); // Log para ajudar a debugar se precisar
     res.status(500).json({ error: err.message });
   }
 }
