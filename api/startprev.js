@@ -6,7 +6,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 });
 
-// --- HELPERS ---
+// Helpers
 function brDateToIso(br) {
   if (!br) return null;
   const parts = br.split("/");
@@ -34,26 +34,23 @@ function readBody(req) {
   });
 }
 
-// --- PROMPT (CÉREBRO) ---
+// PROMPT DO SISTEMA
 const SYSTEM_PROMPT = `
 VOCÊ É O MOTOR DE DECISÃO FINANCEIRA DA START PREV.
 
-1) DADOS DO CLIENTE (PARA O CARD DE APRESENTAÇÃO):
-   - Extraia com precisão: Nome Completo, CPF, NB (Número do Benefício).
-   - Identifique a Alíquota de Desconto INSS (Ex: "7.5% - 1ª Faixa", "9% - 2ª Faixa") baseada na MR.
-   - Identifique se haverá 13º Salário (Rubrica 104 presente?). Responda boolean.
+1) DADOS DO CLIENTE (Obrigatório para o Card):
+   - Extraia: Nome Completo, CPF, NB.
+   - Identifique a Alíquota INSS (Ex: "7.5% - 1ª Faixa") baseada na MR.
+   - Identifique se tem 13º Salário (Rubrica 104).
 
-2) TABELA DE CÁLCULO (IGUAL AO EXCEL):
-   - Agrupe pagamentos por DATA (Liberações).
-   - Calcule "dias_calculados" proporcionais.
-   - ESTRATÉGIA: 
-     - Liberação >= 1600: Tente 40% (0.4).
-     - Liberação < 1600: Tente 35% (0.35).
-     - TRAVA DE TETO: Se aplicar a % ultrapassar o Saldo Devedor total, reduza a % para cobrar apenas o restante.
-   - AUDITORIA: Marque 'erro_inss_pagou_menos' se o valor líquido não bater com os dias proporcionais.
+2) REGRAS DE CÁLCULO:
+   - Agrupe pagamentos por DATA.
+   - Calcule dias proporcionais.
+   - ESTRATÉGIA: >= 1600 (40%), < 1600 (35%). Respeite o Teto.
+   - AUDITORIA: Marque erro se valor não bater com dias.
 
 3) OUTPUT JSON:
-   Gere JSON estrito contendo 'dados_cliente', 'linhas', 'totais_final' e 'fatura_texto_completo'.
+   Gere JSON estrito com 'dados_cliente', 'linhas', 'totais_final' e 'fatura_texto_completo'.
 `;
 
 export default async function handler(req, res) {
@@ -62,9 +59,9 @@ export default async function handler(req, res) {
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
-    const action = body.action || 'preview'; 
+    const action = body.action || 'preview';
 
-    // MODO PREVIEW (CONSULTA IA)
+    // MODO PREVIEW
     if (action === 'preview') {
       const { pdfText, valorPrevistoAnterior = 0, valorRecebidoAnterior = 0, primeiraParcela = true } = body;
       
@@ -84,7 +81,7 @@ export default async function handler(req, res) {
             schema: {
               type: "object",
               properties: {
-                // ESTE É O BLOCO QUE FALTAVA PARA O CARD
+                // ESTE BLOCO É CRUCIAL PARA O CARD APARECER
                 dados_cliente: {
                     type: "object",
                     properties: {
@@ -142,7 +139,7 @@ export default async function handler(req, res) {
       return res.status(200).json(JSON.parse(completion.choices[0].message.content));
     }
 
-    // MODO SAVE (GRAVA NO BANCO)
+    // MODO SAVE
     if (action === 'save') {
       const { dadosParaSalvar, primeiraParcela, valoresAnteriores } = body;
       console.log("💾 Modo Save: Gravando...");
