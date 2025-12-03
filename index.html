@@ -24,6 +24,48 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
+    // Error Boundary Component
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+      }
+
+      static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+      }
+
+      componentDidCatch(error, errorInfo) {
+        console.error('React Error:', error, errorInfo);
+      }
+
+      render() {
+        if (this.state.hasError) {
+          return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+              <div className="bg-white max-w-lg w-full p-8 rounded-2xl shadow-xl">
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span className="text-3xl">⚠️</span>
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-800 mb-2">Algo deu errado</h2>
+                  <p className="text-gray-500 mb-6">Ocorreu um erro inesperado. Por favor, recarregue a página.</p>
+                  <button 
+                    onClick={() => window.location.reload()} 
+                    className="bg-brand-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-brand-700 transition w-full"
+                  >
+                    Recarregar Página
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        return this.props.children;
+      }
+    }
+
     function App() {
       // ESTADOS
       const [step, setStep] = useState('upload'); 
@@ -68,13 +110,25 @@
             })
           });
           
+          if (!res.ok) {
+            throw new Error(`Erro do servidor: ${res.status}`);
+          }
+          
           const json = await res.json();
           if(json.error) throw new Error(json.error);
+          
+          // Validação básica dos dados retornados
+          if (!json.dados_cliente || !json.linhas || !json.totais_final) {
+            throw new Error("Resposta inválida do servidor. Tente novamente.");
+          }
           
           setData(json);
           setStep('preview'); 
         } catch (e) {
-          alert("Erro: " + e.message);
+          console.error('Erro ao processar PDF:', e);
+          alert("Erro ao processar PDF: " + e.message);
+          // Mantém na tela de upload em caso de erro
+          setStep('upload');
         } finally {
           setLoading(false);
         }
@@ -94,11 +148,17 @@
               valoresAnteriores: { recebido: pagoAnterior }
             })
           });
+          
+          if (!res.ok) {
+            throw new Error(`Erro do servidor: ${res.status}`);
+          }
+          
           const json = await res.json();
           if(json.error) throw new Error(json.error);
           
           setStep('success'); // Vai para a tela de sucesso
         } catch (e) {
+          console.error('Erro ao salvar:', e);
           alert("Erro ao salvar: " + e.message);
         } finally {
           setLoading(false);
@@ -166,8 +226,8 @@
                     <h2 className="text-sm font-bold text-brand-200 uppercase tracking-wider mb-1">Cliente</h2>
                     <div className="text-3xl font-bold">{data.dados_cliente?.nome || 'Cliente não identificado'}</div>
                     <div className="flex items-center gap-4 mt-2 text-brand-100 text-sm">
-                       <span className="flex items-center gap-1"><i data-lucide="user" className="w-4 h-4"></i> {data.dados_cliente?.cpf}</span>
-                       <span className="flex items-center gap-1"><i data-lucide="hash" className="w-4 h-4"></i> NB: {data.dados_cliente?.nb}</span>
+                       <span className="flex items-center gap-1"><i data-lucide="user" className="w-4 h-4"></i> {data.dados_cliente?.cpf || 'N/A'}</span>
+                       <span className="flex items-center gap-1"><i data-lucide="hash" className="w-4 h-4"></i> NB: {data.dados_cliente?.nb || 'N/A'}</span>
                     </div>
                  </div>
                  
@@ -283,7 +343,11 @@
     }
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
+    root.render(
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    );
   </script>
 </body>
 </html>
