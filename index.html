@@ -90,7 +90,8 @@
         });
         
         if (!res.ok) {
-          throw new Error(`Erro do servidor: ${res.status} ${res.statusText}`);
+          const statusText = res.statusText || 'Erro desconhecido';
+          throw new Error(`Erro do servidor: ${res.status} ${statusText}`);
         }
         
         const json = await res.json();
@@ -125,7 +126,9 @@
           });
           
           // Validação básica dos dados retornados
-          if (!json.dados_cliente || !json.linhas || !json.totais_final) {
+          if (!json.dados_cliente || typeof json.dados_cliente !== 'object' ||
+              !json.linhas || !Array.isArray(json.linhas) ||
+              !json.totais_final || typeof json.totais_final !== 'object') {
             throw new Error("Resposta inválida do servidor. Tente novamente.");
           }
           
@@ -134,8 +137,10 @@
         } catch (e) {
           console.error('Erro ao processar PDF:', e);
           alert("Erro ao processar PDF: " + e.message);
-          // Mantém na tela de upload em caso de erro
-          setStep('upload');
+          // Garante que voltamos para a tela de upload em caso de erro
+          if (step !== 'upload') {
+            setStep('upload');
+          }
         } finally {
           setLoading(false);
         }
