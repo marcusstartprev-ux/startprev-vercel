@@ -81,6 +81,24 @@
         return () => clearTimeout(timer);
       }, [data, step]);
 
+      // Helper para fazer requisições à API
+      const fetchAPI = async (body) => {
+        const res = await fetch('/api/startprev', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        
+        if (!res.ok) {
+          throw new Error(`Erro do servidor: ${res.status} ${res.statusText}`);
+        }
+        
+        const json = await res.json();
+        if (json.error) throw new Error(json.error);
+        
+        return json;
+      };
+
       // --- AÇÃO 1: PREVIEW ---
       const handlePreview = async () => {
         if(!pdfFile) return alert("Selecione o PDF.");
@@ -99,23 +117,12 @@
             text += content.items.map(s=>s.str).join('\n');
           }
 
-          const res = await fetch('/api/startprev', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'preview',
-              pdfText: text,
-              primeiraParcela: primeiraParcela === "sim",
-              valorRecebidoAnterior: pagoAnterior
-            })
+          const json = await fetchAPI({
+            action: 'preview',
+            pdfText: text,
+            primeiraParcela: primeiraParcela === "sim",
+            valorRecebidoAnterior: pagoAnterior
           });
-          
-          if (!res.ok) {
-            throw new Error(`Erro do servidor: ${res.status}`);
-          }
-          
-          const json = await res.json();
-          if(json.error) throw new Error(json.error);
           
           // Validação básica dos dados retornados
           if (!json.dados_cliente || !json.linhas || !json.totais_final) {
@@ -138,23 +145,12 @@
       const handleSave = async () => {
         setLoading(true);
         try {
-          const res = await fetch('/api/startprev', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'save',
-              dadosParaSalvar: data,
-              primeiraParcela: primeiraParcela === "sim",
-              valoresAnteriores: { recebido: pagoAnterior }
-            })
+          const json = await fetchAPI({
+            action: 'save',
+            dadosParaSalvar: data,
+            primeiraParcela: primeiraParcela === "sim",
+            valoresAnteriores: { recebido: pagoAnterior }
           });
-          
-          if (!res.ok) {
-            throw new Error(`Erro do servidor: ${res.status}`);
-          }
-          
-          const json = await res.json();
-          if(json.error) throw new Error(json.error);
           
           setStep('success'); // Vai para a tela de sucesso
         } catch (e) {
