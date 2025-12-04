@@ -40,8 +40,12 @@
       "dest": "/startprev-backend/api/health.js"
     },
     {
-      "src": "/(.*)",
-      "dest": "/$1"
+      "src": "/index.html",
+      "dest": "/index.html"
+    },
+    {
+      "src": "/",
+      "dest": "/index.html"
     }
   ]
 }

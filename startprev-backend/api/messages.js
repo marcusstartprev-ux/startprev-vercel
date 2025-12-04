@@ -2,17 +2,7 @@ const pool = require('./db');
 const { authenticateToken } = require('./auth-middleware');
 const { processWithClaude } = require('./claude-integration');
 const { saveMessageToBitrix } = require('./bitrix-integration');
-
-async function runMiddleware(req, res, fn) {
-  return new Promise((resolve, reject) => {
-    fn(req, res, (result) => {
-      if (result instanceof Error) {
-        return reject(result);
-      }
-      return resolve(result);
-    });
-  });
-}
+const { runMiddleware } = require('./utils');
 
 module.exports = async (req, res) => {
   // Enable CORS
