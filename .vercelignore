@@ -1,0 +1,22 @@
+# Node modules
+node_modules/
+startprev-backend/node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Development files
+*.log
+npm-debug.log*
+
+# Original server file (not used in serverless)
+startprev-backend/server.js
+
+# Database files
+*.sql
+
+# Git files
+.git/
+.gitignore
