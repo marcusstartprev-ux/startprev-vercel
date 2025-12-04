@@ -40,12 +40,13 @@
 
     function App() {
       // ESTADOS
-      const [step, setStep] = useState('upload'); 
+      const [step, setStep] = useState('upload');
       const [loading, setLoading] = useState(false);
-      const [data, setData] = useState(null); 
+      const [data, setData] = useState(null);
       const [pdfFile, setPdfFile] = useState(null);
       const [primeiraParcela, setPrimeiraParcela] = useState("sim");
       const [pagoAnterior, setPagoAnterior] = useState("");
+      const [erro, setErro] = useState(null);
 
       // Ícones (Com delay para evitar erro de renderização)
       useEffect(() => { 
@@ -57,11 +58,13 @@
       const handlePreview = async () => {
         if(!pdfFile) return alert("Selecione o PDF.");
         if(pdfFile.type !== 'application/pdf') return alert("Arquivo inválido. Selecione o PDF original.");
-        
+
         setLoading(true);
         setData(null);
+        setErro(null);
 
         try {
+          console.log("1. Lendo PDF...");
           const buffer = await pdfFile.arrayBuffer();
           const pdf = await pdfjsLib.getDocument({data: buffer}).promise;
           let text = "";
@@ -70,6 +73,7 @@
             const content = await page.getTextContent();
             text += content.items.map(s=>s.str).join('\n');
           }
+          console.log("2. PDF lido, enviando para API...");
 
           const res = await fetch('/api/startprev', {
             method: 'POST',
@@ -82,15 +86,20 @@
             })
           });
 
+          console.log("3. Resposta recebida, status:", res.status);
           if (!res.ok) throw new Error(`Erro do servidor: ${res.status}`);
 
           const json = await res.json();
+          console.log("4. JSON parseado:", json);
+
           if (json.error) throw new Error(json.error);
           if (!json.dados_cliente || !json.linhas) throw new Error("Resposta incompleta da API");
 
           setData(json);
-          setStep('preview'); 
+          setStep('preview');
         } catch (e) {
+          console.error("ERRO:", e);
+          setErro(e.message);
           alert("Erro: " + e.message);
         } finally {
           setLoading(false);
@@ -124,6 +133,37 @@
 
       const fmt = (v) => Number(v || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
       const pct = (v) => (v*100).toFixed(0) + '%';
+
+      // ---------------- TELA DE LOADING ----------------
+      if (loading) {
+        return (
+          <div key="loading" className="min-h-screen flex items-center justify-center bg-gray-50">
+            <div className="bg-white p-12 rounded-2xl shadow-xl text-center">
+              <div className="animate-spin w-12 h-12 border-4 border-brand-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+              <p className="text-gray-600 font-medium">Processando PDF...</p>
+              <p className="text-gray-400 text-sm mt-2">Isso pode levar alguns segundos</p>
+            </div>
+          </div>
+        );
+      }
+
+      // ---------------- TELA DE ERRO ----------------
+      if (erro) {
+        return (
+          <div key="erro" className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+            <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-md">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-3xl">⚠️</span>
+              </div>
+              <h2 className="text-xl font-bold text-gray-800 mb-2">Erro ao processar</h2>
+              <p className="text-red-600 mb-6 text-sm bg-red-50 p-3 rounded">{erro}</p>
+              <button onClick={() => { setErro(null); setStep('upload'); }} className="bg-brand-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-brand-700 transition">
+                Tentar Novamente
+              </button>
+            </div>
+          </div>
+        );
+      }
 
       // ---------------- TELA 1: UPLOAD ----------------
       if (step === 'upload') {
