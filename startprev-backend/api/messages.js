@@ -52,9 +52,9 @@ module.exports = async (req, res) => {
         [conversationId]
       );
 
-      // Mark messages as read
+      // Mark bot messages as read (user is viewing the conversation)
       await pool.query(
-        'UPDATE messages SET read = true WHERE conversation_id = $1 AND sender = $2',
+        'UPDATE messages SET read = true WHERE conversation_id = $1 AND sender = $2 AND read = false',
         [conversationId, 'bot']
       );
 

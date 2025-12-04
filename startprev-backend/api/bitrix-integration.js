@@ -1,9 +1,14 @@
 const axios = require('axios');
 const pool = require('./db');
 
-const BITRIX_WEBHOOK = process.env.BITRIX_WEBHOOK || 'https://seu-dominio.bitrix24.com.br/rest/1/seu-webhook/';
+const BITRIX_WEBHOOK = process.env.BITRIX_WEBHOOK;
 
 async function syncUserToBitrix(user) {
+  if (!BITRIX_WEBHOOK) {
+    console.warn('BITRIX_WEBHOOK not configured, skipping Bitrix sync');
+    return;
+  }
+
   try {
     const response = await axios.post(`${BITRIX_WEBHOOK}crm.contact.add.json`, {
       fields: {
@@ -29,6 +34,11 @@ async function syncUserToBitrix(user) {
 }
 
 async function updateUserInBitrix(user) {
+  if (!BITRIX_WEBHOOK) {
+    console.warn('BITRIX_WEBHOOK not configured, skipping Bitrix update');
+    return;
+  }
+
   try {
     const result = await pool.query(
       'SELECT bitrix_id FROM users WHERE id = $1',
@@ -51,6 +61,11 @@ async function updateUserInBitrix(user) {
 }
 
 async function saveMessageToBitrix(userId, userMessage, botMessage) {
+  if (!BITRIX_WEBHOOK) {
+    console.warn('BITRIX_WEBHOOK not configured, skipping Bitrix message save');
+    return;
+  }
+
   try {
     const result = await pool.query(
       'SELECT bitrix_id, name FROM users WHERE id = $1',

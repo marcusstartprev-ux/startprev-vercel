@@ -1,7 +1,7 @@
 const axios = require('axios');
 const pool = require('./db');
 
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || '';
+const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
 
 function analyzeSentiment(text) {
   const negativeWords = ['problema', 'ruim', 'péssimo', 'horrível', 'não funciona', 'reclamação', 'frustrado'];
@@ -19,6 +19,14 @@ function analyzeSentiment(text) {
 }
 
 async function processWithClaude(message, userId, conversationId) {
+  if (!CLAUDE_API_KEY) {
+    console.warn('CLAUDE_API_KEY not configured, returning fallback response');
+    return {
+      text: 'Obrigado pela sua mensagem. No momento, estou com problemas de conexão. Por favor, tente novamente mais tarde.',
+      sentiment: analyzeSentiment(message)
+    };
+  }
+
   try {
     // Buscar histórico da conversa
     const historyResult = await pool.query(
