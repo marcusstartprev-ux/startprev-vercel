@@ -14,7 +14,21 @@
   
   <script>
     pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    tailwind.config = { theme: { extend: { colors: { brand: { 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 900: '#1e3a8a' } } } } }
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: { brand: { 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 900: '#1e3a8a' } },
+          animation: {
+            'fade-in': 'fadeIn 0.3s ease-out',
+            'scale-up': 'scaleUp 0.3s ease-out'
+          },
+          keyframes: {
+            fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+            scaleUp: { '0%': { transform: 'scale(0.95)', opacity: '0' }, '100%': { transform: 'scale(1)', opacity: '1' } }
+          }
+        }
+      }
+    }
   </script>
 </head>
 <body class="bg-gray-50 text-gray-800">
@@ -67,10 +81,13 @@
               valorRecebidoAnterior: pagoAnterior
             })
           });
-          
+
+          if (!res.ok) throw new Error(`Erro do servidor: ${res.status}`);
+
           const json = await res.json();
-          if(json.error) throw new Error(json.error);
-          
+          if (json.error) throw new Error(json.error);
+          if (!json.dados_cliente || !json.linhas) throw new Error("Resposta incompleta da API");
+
           setData(json);
           setStep('preview'); 
         } catch (e) {
