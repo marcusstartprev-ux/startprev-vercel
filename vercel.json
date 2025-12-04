@@ -1,0 +1,47 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/**/*.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "startprev-backend/api/**/*.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/startprev",
+      "dest": "/api/startprev.js"
+    },
+    {
+      "src": "/api/auth/signup",
+      "dest": "/startprev-backend/api/signup.js"
+    },
+    {
+      "src": "/api/auth/login",
+      "dest": "/startprev-backend/api/login.js"
+    },
+    {
+      "src": "/api/user/profile",
+      "dest": "/startprev-backend/api/profile.js"
+    },
+    {
+      "src": "/api/conversations",
+      "dest": "/startprev-backend/api/conversations.js"
+    },
+    {
+      "src": "/api/messages",
+      "dest": "/startprev-backend/api/messages.js"
+    },
+    {
+      "src": "/health",
+      "dest": "/startprev-backend/api/health.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
+    }
+  ]
+}
